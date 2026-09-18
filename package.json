@@ -1,0 +1,21 @@
+{
+  "name": "playlist-migrator",
+  "version": "1.0.0",
+  "description": "Migrate Spotify playlists (public + private) to YouTube Music, with OAuth for both services.",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "googleapis": "^140.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

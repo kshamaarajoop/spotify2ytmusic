@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spotify → YouTube Music</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Spotify → YouTube Music</h1>
+    <p class="sub">Move your playlists over, without asking Spotify or Google to talk to each other.</p>
+
+    <section class="connect-row">
+      <div class="card" id="spotify-card">
+        <h2>1. Spotify</h2>
+        <p id="spotify-status">Not connected</p>
+        <a class="btn spotify" href="/auth/spotify/login">Connect Spotify</a>
+      </div>
+      <div class="card" id="google-card">
+        <h2>2. YouTube</h2>
+        <p id="google-status">Not connected</p>
+        <a class="btn youtube" href="/auth/google/login">Connect YouTube</a>
+      </div>
+    </section>
+
+    <section id="playlists-section" hidden>
+      <h2>3. Pick a playlist to migrate</h2>
+      <p class="hint">YouTube limits how many songs can be matched per day (quota), so start with a smaller playlist.</p>
+      <div id="playlists-list" class="playlists-list"></div>
+    </section>
+
+    <section id="result-section" hidden>
+      <h2>Result</h2>
+      <div id="result-summary"></div>
+      <div id="result-table"></div>
+    </section>
+
+    <p id="error-banner" class="error" hidden></p>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
