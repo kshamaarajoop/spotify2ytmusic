@@ -59,7 +59,7 @@ Visit http://localhost:3000, connect both accounts, pick a playlist, migrate.
 Railway and Fly.io work the same way — same env vars, same redirect-URI
 update — this app has no Render-specific code.
 
-## Known limitations / next steps
+## Known limitations 
 
 - Sessions (and OAuth tokens) live in server memory (`express-session`'s
   default store). They're wiped on every restart, and this won't work if you
@@ -73,4 +73,3 @@ update — this app has no Render-specific code.
   pick a cover, live version, or lyric video instead of the original.
 - Publishing the Google OAuth consent screen (so any user can log in, not
   just added test users) requires Google's app verification process.
-# spotify2ytmusic
