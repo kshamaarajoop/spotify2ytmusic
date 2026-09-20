@@ -20,6 +20,7 @@ Usage (same playlists-to-scrape.json as the Node scraper):
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,6 +33,17 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).parent
 PLAYLISTS_FILE = SCRIPT_DIR / "playlists-to-scrape.json"
 OUTPUT_FILE = SCRIPT_DIR.parent / "data" / "playlists.json"
+
+
+def extract_playlist_id(raw):
+    # get_playlist() itself accepts a URL, URI, or bare ID - but we need a
+    # clean ID (not a full URL) to use as a safe filename downstream.
+    match = re.search(r"playlist[/:]([A-Za-z0-9]{22})", raw)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[A-Za-z0-9]{22}", raw):
+        return raw
+    return raw  # fall back to the raw value; normalize_track's caller will still work
 
 
 def normalize_track(entry):
@@ -78,7 +90,7 @@ def main():
                 playlist = client.get_playlist(raw, max_tracks=500)
                 tracks = [t for t in (normalize_track(e) for e in playlist.tracks) if t is not None]
                 print(f'  "{playlist.name}" - {len(tracks)} tracks')
-                playlists.append({"id": str(raw), "name": playlist.name, "tracks": tracks})
+                playlists.append({"id": extract_playlist_id(raw), "name": playlist.name, "tracks": tracks})
             except Exception as err:  # noqa: BLE001 - surface anything, keep going
                 print(f"  Failed to scrape {raw}: {err}", file=sys.stderr)
 
