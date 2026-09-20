@@ -1,75 +1,135 @@
 # Spotify → YouTube Music playlist migrator
 
-Node/Express app that lets a user log in to Spotify and YouTube (via OAuth),
-pick one of their Spotify playlists (public, private, or collaborative), and
-create a matching playlist on YouTube Music.
+CLI tool that reads your Spotify playlists from Spotify's public data (no
+Spotify login, no Spotify developer app) and recreates them on YouTube
+Music via the official YouTube Data API v3. A full OAuth web app also
+exists in this repo but currently can't be used as a genuinely public
+site — see "Web app" near the bottom.
 
-## How matching works
+## How it works
 
-For each Spotify track we call the YouTube Data API's `search.list` with
-`"<artist> - <title>"` restricted to the Music category, take the first
-result, and add it to a newly created (private) YouTube playlist.
+Two scripts, with `data/playlists.json` passed between them:
 
-**Quota constraint (important):** `search.list` costs 100 quota units, and a
-new Google Cloud project gets 10,000 units/day by default — so you can match
-roughly **90–100 tracks per day** until Google approves a quota increase
-request. The app stops gracefully and tells the user to retry tomorrow if it
-runs out mid-migration, rather than failing outright.
+1. **`scripts/scrape_with_spotifyscraper.py`** — reads your Spotify
+   playlists via the `spotifyscraper` library. This goes through Spotify's
+   own GraphQL Pathfinder API (the same one open.spotify.com's frontend
+   itself uses), not the official public Web API — which, as of Spotify's
+   February 2026 changes, restricts playlist-track reads to the account
+   that owns the playlist, making it unusable for this kind of tool.
+   Writes `data/playlists.json`.
+2. **`scripts/migrate-from-json.js`** — reads that file, creates a matching
+   private playlist on YouTube Music for each entry, and searches + adds
+   every track via the real YouTube Data API v3.
 
-## 1. Register OAuth apps
+No Spotify login or registered Spotify app is involved anywhere in this
+flow. YouTube still needs a one-time Google OAuth login, since actually
+writing a playlist to a real account requires it — but only once, not on
+every run.
 
-**Spotify** — https://developer.spotify.com/dashboard
-1. Create an app.
-2. Add Redirect URI: `<BASE_URL>/auth/spotify/callback`
-   (e.g. `https://your-app.onrender.com/auth/spotify/callback`, or
-   `http://localhost:3000/auth/spotify/callback` for local dev)
-3. Copy the Client ID and Client Secret.
+## Setup
 
-**Google / YouTube** — https://console.cloud.google.com
-1. Create a project, then enable **YouTube Data API v3** under "APIs & Services".
-2. Configure the OAuth consent screen (External, add the `youtube` scope).
-   While the app is unpublished/in testing, only accounts you add as test
-   users can log in — fine for personal use, but note this if you want other
-   people to use it.
-3. Create an OAuth Client ID, type **Web application**.
-4. Add Authorized redirect URI: `<BASE_URL>/auth/google/callback`
-5. Copy the Client ID and Client Secret.
-
-## 2. Local setup
-
+### 1. Install dependencies
 ```bash
 npm install
-cp .env.example .env
-# fill in .env with the values from step 1
-npm start
+pip install spotifyscraper
 ```
 
-Visit http://localhost:3000, connect both accounts, pick a playlist, migrate.
+### 2. Register a Google Cloud OAuth app (YouTube side only)
 
-## 3. Deploy (Render free tier)
+Nothing needs registering on the Spotify side for this flow.
 
-1. Push this folder to a GitHub repo.
-2. On Render: New → Web Service → connect the repo. `render.yaml` pre-fills
-   the build/start commands.
-3. Set the env vars in the Render dashboard (`BASE_URL` = your Render URL,
-   plus the Spotify/Google credentials from step 1).
-4. **Update the redirect URIs** in both the Spotify and Google consoles to
-   use the real Render URL, not localhost.
+1. https://console.cloud.google.com → new project → enable **YouTube Data API v3**
+2. OAuth consent screen: External, add scope
+   `https://www.googleapis.com/auth/youtube`, add yourself as a test user
+3. Create an OAuth Client ID, type **Web application**
+4. Authorized redirect URI: `http://127.0.0.1:3000/oauth-callback`
 
-Railway and Fly.io work the same way — same env vars, same redirect-URI
-update — this app has no Render-specific code.
+### 3. Configure environment
+```bash
+cp .env.example .env
+# fill in GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
+```
 
-## Known limitations 
+### 4. One-time Google login
+```bash
+node scripts/get-google-refresh-token.js
+```
+Opens a URL — approve access once in your browser. The terminal then
+prints a `GOOGLE_REFRESH_TOKEN=...` line; paste it into `.env`. Every
+future run reuses this automatically; no browser step again unless you
+revoke access.
 
-- Sessions (and OAuth tokens) live in server memory (`express-session`'s
-  default store). They're wiped on every restart, and this won't work if you
-  ever scale to more than one instance. Fine for personal/demo use; swap in
-  `connect-redis` or a database-backed store before sharing this widely.
-- Migration runs synchronously in one HTTP request. For very large playlists
-  this could be slow enough to hit a host's request timeout — a next step
-  would be to stream progress over Server-Sent Events or a background job
-  queue instead.
-- Track matching is a single best-guess YouTube search; it can occasionally
-  pick a cover, live version, or lyric video instead of the original.
-- Publishing the Google OAuth consent screen (so any user can log in, not
-  just added test users) requires Google's app verification process.
+### 5. List which playlists to migrate
+```bash
+cp scripts/playlists-to-scrape.example.json scripts/playlists-to-scrape.json
+# edit it with your playlists' share links or IDs
+```
+Each playlist must be set to **Public** in Spotify to be readable this way.
+
+## Running it
+
+```bash
+python3 scripts/scrape_with_spotifyscraper.py   # Spotify -> data/playlists.json
+node scripts/migrate-from-json.js                # data/playlists.json -> YouTube Music
+```
+
+Per-playlist results (which tracks matched, which didn't, and why) are
+saved to `data/results/<playlistId>.json` after each run.
+
+## The YouTube quota constraint (important)
+
+Each track match costs one `search.list` call — 100 quota units against
+Google's default 10,000-unit daily budget, so roughly **90–100 tracks per
+day** until you request a quota increase from Google. If the quota runs
+out mid-migration, the script stops gracefully, logs which tracks were
+skipped, and tells you to re-run tomorrow — nothing already added is lost
+or redone.
+
+## Known limitations
+
+- Track matching is a single best-guess YouTube search — it can
+  occasionally pick a cover, live version, or lyric video instead of the
+  original.
+- The one-time Google login supports one YouTube account at a time
+  (whichever refresh token is in `.env`). Migrating to a different account
+  means re-running `get-google-refresh-token.js` and overwriting it.
+- `scripts/scrape-spotify.js` — an earlier, pure-Node scraper using an
+  anonymous Spotify token — is kept in the repo for reference but no
+  longer works: Spotify's February 2026 API changes restrict the endpoint
+  it calls to the playlist's *owning* account, which an anonymous token
+  can never be. Use `scrape_with_spotifyscraper.py` instead.
+- `spotifyscraper` goes through an undocumented (though actively
+  maintained) endpoint, not Spotify's official API. Treat this as a
+  personal-project technique — not something to run at real volume or
+  point at playlists other than your own.
+- Re-running a migration for a playlist you already migrated creates a
+  **second, duplicate** YouTube playlist rather than updating the first.
+
+## Project structure
+
+```
+playlist-migrator/
+├── .env.example
+├── .gitignore
+├── package.json
+├── README.md
+├── render.yaml
+├── docs/
+│   └── BUILD-LOG.md
+│
+├── scripts/                          ← what you actually run
+│   ├── playlists-to-scrape.example.json
+│   ├── playlists-to-scrape.json        (gitignored — your real list)
+│   ├── scrape_with_spotifyscraper.py   Spotify -> data/playlists.json (use this one)
+│   ├── scrape-spotify.js               older Node scraper, no longer works (kept for reference)
+│   ├── get-google-refresh-token.js     one-time Google login -> refresh token for .env
+│   └── migrate-from-json.js            data/playlists.json -> YouTube Music
+│
+├── data/                              ← gitignored entirely
+│   ├── playlists.json                  scraper output
+│   └── results/<playlistId>.json       per-playlist migration logs
+│
+├── server/                           ←
+│   ├── services/youtubeApi.js   youtubeApi.js is shared with scripts/migrate-from-json.js
+
+```
